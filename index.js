@@ -41,5 +41,6 @@ bot.onText(/\/summarize/, async (msg) => {
     bot.sendMessage(chatId, '❌ Помилка при генерації підсумку.');
   }
 });
-
+const http = require('http');
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 console.log('Bot started!');

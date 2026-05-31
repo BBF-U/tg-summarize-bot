@@ -37,7 +37,7 @@ bot.onText(/\/summarize/, async (msg) => {
     const prompt = `Зроби короткий дайджест цієї розмови у Telegram-групі. Вкажи головні теми та висновки. Відповідай українською.\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();
-    bot.sendMessage(chatId, `📋 *Підсумок розмови:*\n\n${text}`, { parse_mode: 'Markdown' });
+    bot.sendMessage(chatId, `📋 Підсумок розмови:\n\n${text}`);
   } catch (e) {
     console.error(e);
     bot.sendMessage(chatId, '❌ Помилка при генерації підсумку.');

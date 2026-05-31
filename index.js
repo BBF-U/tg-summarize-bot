@@ -34,7 +34,7 @@ bot.onText(/\/summarize/, async (msg) => {
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
-    const prompt = `Зроби короткий дайджест цієї розмови у Telegram-групі. Вкажи головні теми та висновки. Відповідай українською.\n\n${history.join('\n')}`;
+    const prompt = `Зроби короткий дайджест цієї розмови у Telegram-групі. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток, без дефісів як маркерів. Замість цього використовуй емодзі для структури. Формат відповіді:\n🔹 Головні теми — перелічи 2-4 теми\n🔸 Висновки — 2-3 речення\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     bot.sendMessage(chatId, `📋 Підсумок розмови:\n\n${text}`);

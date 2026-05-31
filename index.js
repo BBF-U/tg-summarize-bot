@@ -33,7 +33,7 @@ bot.onText(/\/summarize/, async (msg) => {
   bot.sendMessage(chatId, '⏳ Аналізую розмову...');
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
     const prompt = `Зроби короткий дайджест цієї розмови у Telegram-групі. Вкажи головні теми та висновки. Відповідай українською.\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();

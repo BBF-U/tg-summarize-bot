@@ -44,4 +44,9 @@ bot.onText(/\/summarize/, async (msg) => {
   }
 });
 
+bot.onText(/\/clear/, (msg) => {
+  const chatId = msg.chat.id;
+  messageHistory[chatId] = [];
+  bot.sendMessage(chatId, '🗑 Історія очищена. Можна починати заново!');
+});
 console.log('Bot started!');

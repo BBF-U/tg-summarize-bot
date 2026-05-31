@@ -43,4 +43,47 @@ bot.onText(/\/digest/, async (msg) => {
   }
 });
 
+bot.onText(/\/tldr/, async (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  if (!history || history.length === 0) {
+    return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
+  }
+
+  bot.sendMessage(chatId, '⏳ Стискаю до мінімуму...');
+  messageHistory[chatId] = [];
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.\n\n${history.join('\n')}`;
+    const result = await model.generateContent(prompt);
+    bot.sendMessage(chatId, `⚡ TL;DR:\n\n${result.response.text()}`);
+  } catch (e) {
+    console.error(e);
+    bot.sendMessage(chatId, '❌ Помилка.');
+  }
+});
+
+bot.onText(/\/topics/, async (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  if (!history || history.length === 0) {
+    return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
+  }
+
+  bot.sendMessage(chatId, '⏳ Виділяю теми...');
+  messageHistory[chatId] = [];
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.\n\n${history.join('\n')}`;
+    const result = await model.generateContent(prompt);
+    bot.sendMessage(chatId, `🗂 Теми:\n\n${result.response.text()}`);
+  } catch (e) {
+    console.error(e);
+    bot.sendMessage(chatId, '❌ Помилка.');
+  }
+});
 console.log('Bot started!');

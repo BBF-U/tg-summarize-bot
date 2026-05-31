@@ -12,10 +12,11 @@ const MAX_MESSAGES = 50;
 
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
-  if (!msg.text || msg.text.startsWith('/')) return;
+  const text = msg.text || msg.caption;
+  if (!text || text.startsWith('/')) return;
+  messageHistory[chatId].push(`${msg.from.first_name}: ${text}`);
 
   if (!messageHistory[chatId]) messageHistory[chatId] = [];
-  messageHistory[chatId].push(`${msg.from.first_name}: ${msg.text}`);
 
   if (messageHistory[chatId].length > MAX_MESSAGES) {
     messageHistory[chatId].shift();

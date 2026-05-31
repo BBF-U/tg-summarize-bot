@@ -55,7 +55,7 @@ bot.onText(/\/tldr/, async (msg) => {
   messageHistory[chatId] = [];
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     bot.sendMessage(chatId, `⚡ TL;DR:\n\n${result.response.text()}`);
@@ -77,7 +77,7 @@ bot.onText(/\/topics/, async (msg) => {
   messageHistory[chatId] = [];
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     bot.sendMessage(chatId, `🗂 Теми:\n\n${result.response.text()}`);

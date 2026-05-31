@@ -1,10 +1,12 @@
+const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Зберігаємо останні повідомлення кожної групи
 const messageHistory = {};
 const MAX_MESSAGES = 50;
 
@@ -41,6 +43,5 @@ bot.onText(/\/summarize/, async (msg) => {
     bot.sendMessage(chatId, '❌ Помилка при генерації підсумку.');
   }
 });
-const http = require('http');
-http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+
 console.log('Bot started!');

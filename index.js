@@ -32,7 +32,7 @@ bot.onText(/\/digest/, async (msg) => {
   messageHistory[chatId] = [];
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:\n🔹 Головні теми — перелічи теми\n🔸 Висновки — 2-3 речення\n\n${history.join('\n')}`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();

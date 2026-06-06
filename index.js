@@ -9,11 +9,25 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const messageHistory = {};
 
+async function generateWithRetry(modelName, prompt, retries = 3) {
+  const model = genAI.getGenerativeModel({ model: modelName });
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      const delay = (i + 1) * 3000;
+      console.log(`Спроба ${i + 1} не вдалась, чекаю ${delay / 1000}с...`);
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+}
+
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || msg.caption;
   if (!text || text.startsWith('/')) return;
-
   if (!messageHistory[chatId]) messageHistory[chatId] = [];
   messageHistory[chatId].push(`${msg.from.first_name}: ${text}`);
 });
@@ -21,21 +35,14 @@ bot.on('message', (msg) => {
 bot.onText(/\/digest/, async (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
-
   if (!history || history.length === 0) {
     return bot.sendMessage(chatId, '📭 Немає повідомлень для підсумування. Перешли повідомлення і спробуй знову.');
   }
-
   bot.sendMessage(chatId, '⏳ Аналізую...');
-
-  // Одразу скидаємо історію для наступного разу
   messageHistory[chatId] = [];
-
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:\n🔹 Головні теми — перелічи теми\n🔸 Висновки — 2-3 речення\n\n${history.join('\n')}`;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const text = await generateWithRetry('gemini-3.5-flash', prompt);
     bot.sendMessage(chatId, `📋 Дайджест:\n\n${text}`);
   } catch (e) {
     console.error(e);
@@ -46,19 +53,15 @@ bot.onText(/\/digest/, async (msg) => {
 bot.onText(/\/tldr/, async (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
-
   if (!history || history.length === 0) {
     return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
   }
-
   bot.sendMessage(chatId, '⏳ Стискаю до мінімуму...');
   messageHistory[chatId] = [];
-
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
     const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.\n\n${history.join('\n')}`;
-    const result = await model.generateContent(prompt);
-    bot.sendMessage(chatId, `⚡ TL;DR:\n\n${result.response.text()}`);
+    const text = await generateWithRetry('gemini-2.5-flash', prompt);
+    bot.sendMessage(chatId, `⚡ TL;DR:\n\n${text}`);
   } catch (e) {
     console.error(e);
     bot.sendMessage(chatId, '❌ Помилка.');
@@ -68,22 +71,19 @@ bot.onText(/\/tldr/, async (msg) => {
 bot.onText(/\/topics/, async (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
-
   if (!history || history.length === 0) {
     return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
   }
-
   bot.sendMessage(chatId, '⏳ Виділяю теми...');
   messageHistory[chatId] = [];
-
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.\n\n${history.join('\n')}`;
-    const result = await model.generateContent(prompt);
-    bot.sendMessage(chatId, `🗂 Теми:\n\n${result.response.text()}`);
+    const text = await generateWithRetry('gemini-2.5-flash', prompt);
+    bot.sendMessage(chatId, `🗂 Теми:\n\n${text}`);
   } catch (e) {
     console.error(e);
     bot.sendMessage(chatId, '❌ Помилка.');
   }
 });
+
 console.log('Bot started!');

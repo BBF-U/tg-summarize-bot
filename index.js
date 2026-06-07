@@ -86,4 +86,25 @@ bot.onText(/\/topics/, async (msg) => {
   }
 });
 
+bot.onText(/\/casualties/, async (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  if (!history || history.length === 0) {
+    return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
+  }
+
+  bot.sendMessage(chatId, '⏳ Рахую жертви...');
+  messageHistory[chatId] = [];
+
+  try {
+    const prompt = `Проаналізуй ці повідомлення і підрахуй кількість загиблих та поранених серед цивільного населення. Відповідай українською. Формат відповіді:\n\n💀 Загиблі: X осіб\n🤕 Поранені: X осіб\n\nПотім коротко перелічи інциденти у форматі:\n📍 Місце — що сталось (скільки загиблих/поранених)\n\nЯкщо точна цифра невідома — пиши "щонайменше X". Якщо даних немає — пиши "дані відсутні".\n\n${history.join('\n')}`;
+    const text = await generateWithRetry('gemini-2.5-flash', prompt);
+    bot.sendMessage(chatId, `⚔️ Втрати серед цивільних:\n\n${text}`);
+  } catch (e) {
+    console.error(e);
+    bot.sendMessage(chatId, '❌ Помилка.');
+  }
+});
+
 console.log('Bot started!');

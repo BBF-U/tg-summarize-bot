@@ -24,6 +24,14 @@ async function generateWithRetry(modelName, prompt, retries = 3) {
   }
 }
 
+function retryKeyboard(command) {
+  return {
+    reply_markup: {
+      inline_keyboard: [[{ text: '🔄 Повторити', callback_data: command }]]
+    }
+  };
+}
+
 bot.on('message', (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || msg.caption;
@@ -32,79 +40,55 @@ bot.on('message', (msg) => {
   messageHistory[chatId].push(`${msg.from.first_name}: ${text}`);
 });
 
-bot.onText(/\/digest/, async (msg) => {
-  const chatId = msg.chat.id;
-  const history = messageHistory[chatId];
-  if (!history || history.length === 0) {
-    return bot.sendMessage(chatId, '📭 Немає повідомлень для підсумування. Перешли повідомлення і спробуй знову.');
-  }
-  bot.sendMessage(chatId, '⏳ Аналізую...');
-  messageHistory[chatId] = [];
-  try {
-    const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:\n🔹 Головні теми — перелічи теми\n🔸 Висновки — 2-3 речення\n\n${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-3.5-flash', prompt);
-    bot.sendMessage(chatId, `📋 Дайджест:\n\n${text}`);
-  } catch (e) {
-    console.error(e);
-    bot.sendMessage(chatId, '❌ Помилка при генерації дайджесту.');
-  }
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const command = query.data;
+  await bot.answerCallbackQuery(query.id);
+  bot.emit('text', { ...query.message, text: `/${command}`, chat: { id: chatId }, from: query.from });
 });
 
-bot.onText(/\/tldr/, async (msg) => {
-  const chatId = msg.chat.id;
+async function handleCommand(chatId, command, waitMsg, successPrefix, promptText) {
   const history = messageHistory[chatId];
   if (!history || history.length === 0) {
     return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
   }
-  bot.sendMessage(chatId, '⏳ Стискаю до мінімуму...');
-  messageHistory[chatId] = [];
+  bot.sendMessage(chatId, waitMsg);
   try {
-    const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.\n\n${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-2.5-flash', prompt);
-    bot.sendMessage(chatId, `⚡ TL;DR:\n\n${text}`);
+    const text = await generateWithRetry('gemini-2.5-flash', promptText);
+    messageHistory[chatId] = [];
+    bot.sendMessage(chatId, `${successPrefix}\n\n${text}`);
   } catch (e) {
     console.error(e);
-    bot.sendMessage(chatId, '❌ Помилка.');
+    bot.sendMessage(chatId, '❌ Помилка. Спробуй ще раз:', retryKeyboard(command));
   }
-});
+}
 
-bot.onText(/\/topics/, async (msg) => {
+bot.onText(/\/digest/, (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
-  if (!history || history.length === 0) {
-    return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
-  }
-  bot.sendMessage(chatId, '⏳ Виділяю теми...');
-  messageHistory[chatId] = [];
-  try {
-    const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.\n\n${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-2.5-flash', prompt);
-    bot.sendMessage(chatId, `🗂 Теми:\n\n${text}`);
-  } catch (e) {
-    console.error(e);
-    bot.sendMessage(chatId, '❌ Помилка.');
-  }
+  const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:\n🔹 Головні теми — перелічи теми\n🔸 Висновки — 2-3 речення\n\n${(history || []).join('\n')}`;
+  handleCommand(chatId, 'digest', '⏳ Аналізую...', '📋 Дайджест:', prompt);
 });
 
-bot.onText(/\/casualties/, async (msg) => {
+bot.onText(/\/tldr/, (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
+  const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.\n\n${(history || []).join('\n')}`;
+  handleCommand(chatId, 'tldr', '⏳ Стискаю до мінімуму...', '⚡ TL;DR:', prompt);
+});
 
-  if (!history || history.length === 0) {
-    return bot.sendMessage(chatId, '📭 Немає повідомлень. Перешли щось і спробуй знову.');
-  }
+bot.onText(/\/topics/, (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+  const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.\n\n${(history || []).join('\n')}`;
+  handleCommand(chatId, 'topics', '⏳ Виділяю теми...', '🗂 Теми:', prompt);
+});
 
-  bot.sendMessage(chatId, '⏳ Рахую жертви...');
-  messageHistory[chatId] = [];
-
-  try {
-    const prompt = `Проаналізуй ці повідомлення і підрахуй загальну кількість загиблих та поранених серед цивільного населення. Відповідай українською. Напиши одне речення у форматі:\n\nЗагалом загинуло X осіб та Y осіб отримали поранення внаслідок ворожих атак у [перелік областей].\n\nЯкщо точна цифра невідома — пиши "щонайменше X". Якщо даних немає — пиши "дані відсутні". Без додаткових пояснень.\n\n${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-2.5-flash', prompt);
-    bot.sendMessage(chatId, `⚔️ Втрати серед цивільних:\n\n${text}`);
-  } catch (e) {
-    console.error(e);
-    bot.sendMessage(chatId, '❌ Помилка.');
-  }
+bot.onText(/\/casualties/, (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+  const prompt = `Проаналізуй ці повідомлення і підрахуй загальну кількість загиблих та поранених серед цивільного населення. Відповідай українською. Напиши одне речення у форматі:\n\nЗагалом загинуло X осіб та Y осіб отримали поранення внаслідок ворожих атак у [перелік областей].\n\nЯкщо точна цифра невідома — пиши "щонайменше X". Якщо даних немає — пиши "дані відсутні". Без додаткових пояснень.\n\n${(history || []).join('\n')}`;
+  handleCommand(chatId, 'casualties', '⏳ Рахую втрати...', '⚔️ Втрати серед цивільних:', prompt);
 });
 
 console.log('Bot started!');

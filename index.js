@@ -54,7 +54,7 @@ async function handleCommand(chatId, command, waitMsg, successPrefix, promptText
   }
   bot.sendMessage(chatId, waitMsg);
   try {
-    const text = await generateWithRetry('gemini-3.6-flash', promptText);
+    const text = await generateWithRetry('gemini-3.5-flash', promptText);
     messageHistory[chatId] = [];
     bot.sendMessage(chatId, `${successPrefix}\n\n${text}`);
   } catch (e) {
@@ -108,7 +108,7 @@ bot.onText(/\/casualties/, async (msg) => {
 ⚔️ Втрати серед цивільних: Загалом загинуло [Сума] осіб з них [Сума] дітей та [Сума] осіб з них [Сума] дітей отримали поранення внаслідок ворожих атак у [Перелік областей через кому у родовому відмінку] областях.
 
 ${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-3.6-flash', prompt);
+    const text = await generateWithRetry('gemini-3.5-flash', prompt);
     messageHistory[chatId] = [];
     bot.sendMessage(chatId, text);
   } catch (e) {

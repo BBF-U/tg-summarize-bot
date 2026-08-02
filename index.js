@@ -92,65 +92,178 @@ bot.onText(/\/casualties/, async (msg) => {
   }
   bot.sendMessage(chatId, '⏳ Рахую втрати...');
   try {
-    const prompt = `Роль: Ти — аналітик текстових зведень про обстріли. Твоє завдання — вирахувати точну загальну кількість загиблих та поранених цивільних.
+    try {
+  const prompt = `Роль: Ти — аналітик текстових зведень про обстріли.
 
-Алгоритм підрахунку:
+Твоє завдання — визначити кількість загиблих та поранених цивільних по кожній області України.
 
-1. Спочатку знайди всі добові зведення ОВА (повідомлення від начальників ОВА/прокуратури зі словами "за минулу добу", "упродовж доби", "за добу", "протягом доби"). Це головне джерело по кожній області.
+Алгоритм:
 
-2. Для кожної області окремо:
-   - Якщо є добове зведення ОВА → використовуй ТІЛЬКИ його цифри, ігноруй оперативні новини по містах цієї ж області.
-   - Якщо добового зведення ОВА НЕМАЄ → збирай усі оперативні новини по цій області/місту і додавай їх.
+1. Знайди всі добові зведення ОВА/МВА/прокуратури зі словами:
+- "за добу"
+- "упродовж доби"
+- "протягом доби"
+- "за минулу добу"
+- "минулої доби"
 
-3. Не пропускай жодної області чи міста де є постраждалі — Київ, Харків, Одеса, Чернігів, Київська область тощо теж рахуються.
+2. Для кожної області:
 
-4. Якщо одна і та сама подія згадується двічі з різних джерел (наприклад, мер міста і ОВА про один прильот) — рахуй ОДИН раз, беручи більшу цифру.
+- Якщо є добове зведення → використовуй ТІЛЬКИ його цифри.
+- Якщо добового зведення немає → підсумуй усі оперативні повідомлення цієї області.
 
-5. Збери назви всіх областей/міст де є постраждалі.
+3. Якщо одна подія згадується декілька разів різними джерелами (ОВА, мер, прокуратура, ДСНС тощо) — врахуй її лише один раз.
 
-6. Дітьми вважати осіб до 18 років.
+4. Київ є окремим регіоном і НЕ входить до Київської області.
 
-Поверни ТІЛЬКИ валідний JSON без жодного тексту, пояснень чи markdown:
-{"regions":[{"name":"Назва регіону","dead":0,"dead_children":0,"injured":0,"injured_children":0}]}
+5. Дітьми вважай усіх осіб віком до 18 років включно.
+
+6. Не створюй область, якщо:
+dead = 0
+injured = 0
+dead_children = 0
+injured_children = 0
+
+7. Один регіон = один запис.
+
+8. Перед поверненням JSON перевір:
+- чи немає однакових областей;
+- чи всі числа цілі;
+- чи всі числа >= 0.
+
+Поверни ТІЛЬКИ валідний JSON.
+
+Структура:
+
+{
+  "regions":[
+    {
+      "name":"Київ",
+      "dead":9,
+      "dead_children":0,
+      "injured":33,
+      "injured_children":4
+    }
+  ]
+}
+
+Не додавай жодного тексту.
 
 ${history.join('\n')}`;
 
-    const raw = await generateWithRetry('gemini-2.5-flash', prompt);
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const { regions } = JSON.parse(clean);
+  const raw = await generateWithRetry("gemini-2.5-flash", prompt);
 
-    const totalDead = regions.reduce((s, r) => s + r.dead, 0);
-    const totalDeadChildren = regions.reduce((s, r) => s + r.dead_children, 0);
-    const totalInjured = regions.reduce((s, r) => s + r.injured, 0);
-    const totalInjuredChildren = regions.reduce((s, r) => s + r.injured_children, 0);
-    const regionNames = regions.map(r => r.name).join(', ');
-    const regionList = regions.map(r => `${r.name} — ${r.dead}/${r.injured}`).join('\n');
+  const clean = raw
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
 
-    function osoby(n) {
-      if (n === 1) return 'особа';
-      if (n >= 2 && n <= 4) return 'особи';
-      return 'осіб';
-    }
+  const parsed = JSON.parse(clean);
 
-    function dytyny(n) {
-      if (n === 1) return 'дитина';
-      if (n >= 2 && n <= 4) return 'дитини';
-      return 'дітей';
-    }
-
-    function zahynuly(n) {
-      if (n === 1) return 'загинула';
-      return 'загинуло';
-    }
-
-    const msg1 = `⚔️ Втрати серед цивільних: Загалом ${zahynuly(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regionNames}.\n\nПо областях (загиблі/поранені):\n${regionList}`;
-
-    messageHistory[chatId] = [];
-    bot.sendMessage(chatId, msg1);
-  } catch (e) {
-    console.error(e);
-    bot.sendMessage(chatId, '❌ Помилка. Спробуй ще раз:', retryKeyboard('casualties'));
+  if (!parsed.regions || !Array.isArray(parsed.regions)) {
+    throw new Error("JSON не містить regions");
   }
+
+  // Об'єднання однакових областей (про всяк випадок)
+  const map = new Map();
+
+  for (const r of parsed.regions) {
+
+    if (!map.has(r.name)) {
+
+      map.set(r.name, {
+        name: r.name,
+        dead: Number(r.dead) || 0,
+        dead_children: Number(r.dead_children) || 0,
+        injured: Number(r.injured) || 0,
+        injured_children: Number(r.injured_children) || 0
+      });
+
+    } else {
+
+      const x = map.get(r.name);
+
+      x.dead += Number(r.dead) || 0;
+      x.dead_children += Number(r.dead_children) || 0;
+      x.injured += Number(r.injured) || 0;
+      x.injured_children += Number(r.injured_children) || 0;
+
+    }
+  }
+
+  const regions = [...map.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "uk"));
+
+  const totalDead =
+    regions.reduce((s, r) => s + r.dead, 0);
+
+  const totalDeadChildren =
+    regions.reduce((s, r) => s + r.dead_children, 0);
+
+  const totalInjured =
+    regions.reduce((s, r) => s + r.injured, 0);
+
+  const totalInjuredChildren =
+    regions.reduce((s, r) => s + r.injured_children, 0);
+
+  function plural(n, one, few, many) {
+
+    const d10 = n % 10;
+    const d100 = n % 100;
+
+    if (d10 === 1 && d100 !== 11)
+      return one;
+
+    if (
+      d10 >= 2 &&
+      d10 <= 4 &&
+      (d100 < 12 || d100 > 14)
+    )
+      return few;
+
+    return many;
+  }
+
+  const osoby = n =>
+    plural(n, "особа", "особи", "осіб");
+
+  const dytyny = n =>
+    plural(n, "дитина", "дитини", "дітей");
+
+  const zahynulo = n =>
+    n === 1 ? "загинула" : "загинуло";
+
+  const regionNames =
+    regions.map(r => r.name).join(", ");
+
+  const regionList =
+    regions
+      .map(
+        r =>
+          `${r.name} — ${r.dead}/${r.injured}`
+      )
+      .join("\n");
+
+  const msg =
+`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regions.length} ${plural(regions.length, "області", "областях", "областях")} (${regionNames}).
+
+По областях (загиблі/поранені):
+${regionList}`;
+
+  messageHistory[chatId] = [];
+
+  bot.sendMessage(chatId, msg);
+
+} catch (err) {
+
+  console.error(err);
+
+  bot.sendMessage(
+    chatId,
+    "❌ Помилка під час аналізу. Спробуйте ще раз.",
+    retryKeyboard("casualties")
+  );
+
+}
 });
 
 console.log('Bot started!');

@@ -108,18 +108,51 @@ bot.onText(/\/casualties/, async (msg) => {
 
 5. Збери назви всіх областей/міст де є постраждалі.
 
-ВАЖЛИВО: Видавай ТІЛЬКИ один рядок, без аналізу, пояснень чи markdown:
-⚔️ Втрати серед цивільних: Загалом загинула [X] [правильна форма слова "особа"], з них [Y] [правильна форма слова "дитина"]. Поранення отримали [Z] [правильна форма слова "особа"], з них [W] [правильна форма слова "дитина"], внаслідок ворожих атак у [області].
-По областях: Київська — 10/100; Донецька — 6/30; Запорізька — 0/10; ...
+6. Дітьми вважати осіб до 18 років.
+
+Поверни ТІЛЬКИ валідний JSON без жодного тексту, пояснень чи markdown:
+{"regions":[{"name":"Назва регіону","dead":0,"dead_children":0,"injured":0,"injured_children":0}]}
 
 ${history.join('\n')}`;
-    const text = await generateWithRetry('gemini-3.6-flash', prompt);
+
+    const raw = await generateWithRetry('gemini-2.5-flash', prompt);
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const { regions } = JSON.parse(clean);
+
+    const totalDead = regions.reduce((s, r) => s + r.dead, 0);
+    const totalDeadChildren = regions.reduce((s, r) => s + r.dead_children, 0);
+    const totalInjured = regions.reduce((s, r) => s + r.injured, 0);
+    const totalInjuredChildren = regions.reduce((s, r) => s + r.injured_children, 0);
+    const regionNames = regions.map(r => r.name).join(', ');
+    const regionList = regions.map(r => `${r.name} — ${r.dead}/${r.injured}`).join('\n');
+
+    function osoby(n) {
+      if (n === 1) return 'особа';
+      if (n >= 2 && n <= 4) return 'особи';
+      return 'осіб';
+    }
+
+    function dytyny(n) {
+      if (n === 1) return 'дитина';
+      if (n >= 2 && n <= 4) return 'дитини';
+      return 'дітей';
+    }
+
+    function zahynuly(n) {
+      if (n === 1) return 'загинула';
+      return 'загинуло';
+    }
+
+    const msg1 = `⚔️ Втрати серед цивільних: Загалом ${zahynuly(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regionNames}.\n\nПо областях (загиблі/поранені):\n${regionList}`;
+
     messageHistory[chatId] = [];
-    bot.sendMessage(chatId, text);
+    bot.sendMessage(chatId, msg1);
   } catch (e) {
     console.error(e);
     bot.sendMessage(chatId, '❌ Помилка. Спробуй ще раз:', retryKeyboard('casualties'));
   }
 });
+
+Тепер Gemini тільки класифікує дані по регіонах, а JavaScript сам рахує суми — жодних математичних помилок! 👍
 
 console.log('Bot started!');

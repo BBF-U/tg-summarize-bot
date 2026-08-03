@@ -227,16 +227,23 @@ ${history.join('\n')}`;
   const zahynulo = n =>
     n === 1 ? "загинула" : "загинуло";
 
-  const regionNames =
-    regions.map(r => r.name).join(", ");
+  const regionNames = regions
+  .map(r =>
+    r.name
+      .replace(/\s+область$/i, "")
+      .replace(/\s+обл\.?$/i, "")
+  )
+  .join(", ");
 
-  const regionList =
-    regions
-      .map(
-        r =>
-          `${r.name} — ${r.dead}/${r.injured}`
-      )
-      .join("\n");
+  const regionList = regions
+  .map(r => {
+    const name = r.name
+      .replace(/\s+область$/i, "")
+      .replace(/\s+обл\.?$/i, "");
+
+    return `${name} — ${r.dead}/${r.injured}`;
+  })
+  .join("\n");
 
   const msg =
 `⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regions.length} ${plural(regions.length, "області", "областях", "областях")} (${regionNames}).

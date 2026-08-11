@@ -1,3 +1,168 @@
+const http = require('http');
+const TelegramBot = require('node-telegram-bot-api');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
+
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+const messageHistory = {};
+
+async function generateWithRetry(modelName, prompt, retries = 3) {
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (e) {
+      if (i === retries - 1) throw e;
+
+      const delay = (i + 1) * 3000;
+
+      console.log(
+        `Спроба ${i + 1} не вдалась, чекаю ${delay / 1000}с...`
+      );
+
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+}
+
+function retryKeyboard(command) {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🔄 Повторити', callback_data: command }]
+      ]
+    }
+  };
+}
+
+bot.on('message', (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || msg.caption;
+
+  if (!text || text.startsWith('/')) return;
+
+  if (!messageHistory[chatId]) {
+    messageHistory[chatId] = [];
+  }
+
+  messageHistory[chatId].push(
+    `${msg.from.first_name}: ${text}`
+  );
+});
+
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+  const command = query.data;
+
+  await bot.answerCallbackQuery(query.id);
+
+  bot.emit('text', {
+    ...query.message,
+    text: `/${command}`,
+    chat: { id: chatId },
+    from: query.from
+  });
+});
+
+async function handleCommand(
+  chatId,
+  command,
+  waitMsg,
+  successPrefix,
+  promptText
+) {
+  const history = messageHistory[chatId];
+
+  if (!history || history.length === 0) {
+    return bot.sendMessage(
+      chatId,
+      '📭 Немає повідомлень. Перешли щось і спробуй знову.'
+    );
+  }
+
+  bot.sendMessage(chatId, waitMsg);
+
+  try {
+    const text = await generateWithRetry(
+      'gemini-3.6-flash',
+      promptText
+    );
+
+    messageHistory[chatId] = [];
+
+    bot.sendMessage(
+      chatId,
+      `${successPrefix}\n\n${text}`
+    );
+  } catch (e) {
+    console.error(e);
+
+    bot.sendMessage(
+      chatId,
+      '❌ Помилка. Спробуй ще раз:',
+      retryKeyboard(command)
+    );
+  }
+}
+
+bot.onText(/\/digest/, (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:
+🔹 Головні теми — перелічи теми
+🔸 Висновки — 2-3 речення
+
+${(history || []).join('\n')}`;
+
+  handleCommand(
+    chatId,
+    'digest',
+    '⏳ Аналізую...',
+    '📋 Дайджест:',
+    prompt
+  );
+});
+
+bot.onText(/\/tldr/, (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.
+
+${(history || []).join('\n')}`;
+
+  handleCommand(
+    chatId,
+    'tldr',
+    '⏳ Стискаю до мінімуму...',
+    '⚡ TL;DR:',
+    prompt
+  );
+});
+
+bot.onText(/\/topics/, (msg) => {
+  const chatId = msg.chat.id;
+  const history = messageHistory[chatId];
+
+  const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.
+
+${(history || []).join('\n')}`;
+
+  handleCommand(
+    chatId,
+    'topics',
+    '⏳ Виділяю теми...',
+    '🗂 Теми:',
+    prompt
+  );
+});
+
 bot.onText(/\/casualties/, async (msg) => {
   const chatId = msg.chat.id;
   const history = messageHistory[chatId];
@@ -26,9 +191,9 @@ bot.onText(/\/casualties/, async (msg) => {
 - які повідомлення є уточненням уже опублікованої інформації;
 - які повідомлення входять до добового зведення.
 
-3. ДОБОВІ ЗВЕДЕННЯ:
+3. ДОБОВІ ЗВЕДЕННЯ ОВА/МВА/ПРОКУРАТУРИ:
 
-Знайди повідомлення ОВА/МВА/прокуратури зі словами:
+Знайди повідомлення зі словами:
 - "за минулу добу"
 - "упродовж доби"
 - "за добу"
@@ -39,29 +204,29 @@ bot.onText(/\/casualties/, async (msg) => {
 
 Добове зведення є основним підсумком лише за той період, який воно описує.
 
-4. НЕ ВВАЖАЙ АВТОМАТИЧНО ПІЗНІШЕ ПОВІДОМЛЕННЯ ДУБЛЕМ.
+4. ВАЖЛИВО: НЕ ВВАЖАЙ АВТОМАТИЧНО ПІЗНІШЕ ПОВІДОМЛЕННЯ ДУБЛЕМ.
 
-Якщо після добового зведення з'явилося оперативне повідомлення, визнач, чи це:
+Якщо після добового зведення з'явилося оперативне повідомлення, спочатку визнач, чи йдеться про:
 
-A) та сама подія, яка вже врахована;
+A) ту саму подію, яка вже врахована;
 B) уточнення кількості постраждалих у тій самій події;
-C) нова окрема подія.
+C) нову окрему подію.
 
-Якщо це A або B — не додавай людей повторно.
+Якщо це A або B → не додавай людей повторно.
 
-Якщо це C — ОБОВ'ЯЗКОВО додай нових загиблих та поранених до підсумку.
+Якщо це C → ОБОВ'ЯЗКОВО додай нових загиблих/поранених до підсумку.
 
 Не відкидай оперативну новину лише тому, що для цієї області вже є добове зведення.
 
 5. КОЛИ ВВАЖАТИ ПОВІДОМЛЕННЯ УТОЧНЕННЯМ:
 
-Вважай нове повідомлення уточненням попереднього лише тоді, коли з тексту прямо або однозначно випливає, що це та сама подія.
+Вважай нове повідомлення уточненням попереднього лише тоді, коли з тексту це прямо або однозначно випливає.
 
 Наприклад:
 - "уточнено кількість постраждалих";
 - "раніше повідомлялося про 5, тепер відомо про 8";
 - "кількість поранених зросла до...";
-- описано те саме місце, той самий удар і ту саму подію, але пізніше стало відомо про нову кількість постраждалих.
+- описано ту саму конкретну подію, те саме місце та той самий удар, але кількість постраждалих стала відомою пізніше.
 
 Якщо такого зв'язку немає — НЕ вигадуй, що це уточнення.
 
@@ -69,11 +234,10 @@ C) нова окрема подія.
 - однакову область;
 - однакове місто;
 - однаковий день;
-- однаковий тип зброї;
-- однакове слово "постраждали";
-- наявність добового зведення.
+- те, що в обох повідомленнях є слово "постраждали";
+- те, що вже існує добове зведення.
 
-Одна область може мати кілька різних подій за один день. Їх потрібно рахувати окремо.
+Одна область може мати кілька різних подій за один день, і їх потрібно рахувати окремо.
 
 7. Якщо одна і та сама подія згадується декілька разів різними джерелами (ОВА, МВА, прокуратура, ДСНС, поліція, мер тощо) — рахуй її лише ОДИН раз.
 
@@ -81,21 +245,11 @@ C) нова окрема подія.
 
 Попередню цифру внеси до "excluded".
 
-8. НЕ ВИКОРИСТОВУЙ ПРАВИЛО "БРАТИ БІЛЬШУ ЦИФРУ".
+8. Київ є окремим регіоном і НЕ входить до Київської області.
 
-Більша цифра може стосуватися іншої події.
+9. Дітьми вважай усіх осіб віком ДО 18 років.
 
-Спочатку визнач, чи це та сама подія.
-
-Якщо це та сама подія — використовуй остаточну цифру.
-
-Якщо це інша подія — додавай її окремо.
-
-9. Київ є окремим регіоном і НЕ входить до Київської області.
-
-10. Дітьми вважай усіх осіб віком ДО 18 років.
-
-11. Кількість дітей НЕ МОЖНА ВИГАДУВАТИ.
+10. Кількість дітей НЕ МОЖНА ВИГАДУВАТИ.
 
 Якщо прямо вказано конкретний вік — визначай дитину за віком.
 
@@ -103,17 +257,19 @@ C) нова окрема подія.
 
 Якщо сказано "серед постраждалих є дитина" — це означає щонайменше 1 дитину.
 
-Якщо точна кількість дітей не вказана — НЕ вигадуй точну кількість.
+Якщо точна кількість дітей не вказана, НЕ вигадуй точну кількість.
 
-12. Не створюй область, якщо:
+Якщо немає достатньо інформації для визначення кількості дітей — використовуй 0.
+
+11. Не створюй область, якщо:
 dead = 0
 injured = 0
 dead_children = 0
 injured_children = 0
 
-13. Один регіон = один запис.
+12. Один регіон = один запис.
 
-14. Після підрахунку ОБОВ'ЯЗКОВО перевір:
+13. Після підрахунку ОБОВ'ЯЗКОВО перевір:
 
 - чи немає однакових областей;
 - чи кожна окрема подія врахована лише один раз;
@@ -126,7 +282,7 @@ injured_children = 0
 - чи всі числа є цілими;
 - чи всі числа >= 0.
 
-15. НЕВРАХОВАНІ ПОВІДОМЛЕННЯ:
+14. НЕВРАХОВАНІ ПОВІДОМЛЕННЯ:
 
 Якщо повідомлення НЕ включене до підсумку через:
 - дублювання вже врахованої події;
@@ -139,15 +295,37 @@ injured_children = 0
 Для кожного такого повідомлення вкажи:
 
 - name — область;
-- dead — кількість загиблих;
+- dead — кількість загиблих у неврахованому повідомленні;
 - dead_children — кількість загиблих дітей, якщо відома;
-- injured — кількість поранених;
+- injured — кількість поранених у неврахованому повідомленні;
 - injured_children — кількість поранених дітей, якщо відома;
 - reason — коротка конкретна причина.
 
 Дані з "excluded" НЕ входять до підсумку "regions".
 
 Не додавай одне й те саме повідомлення до "excluded" більше одного разу.
+
+15. ОСОБЛИВО ВАЖЛИВО:
+
+НЕ використовуй правило "брати більшу цифру".
+
+Більша цифра може стосуватися іншої події.
+
+Спочатку визнач, чи це та сама подія.
+
+Якщо це та сама подія — використовуй остаточну цифру.
+
+Якщо це інша подія — додавай її окремо.
+
+16. Якщо є сумнів, чи два повідомлення описують одну подію, проаналізуй:
+- місце;
+- час;
+- тип удару;
+- опис події;
+- кількість і характеристики постраждалих;
+- формулювання джерела.
+
+Не об'єднуй події лише через недостатню інформацію.
 
 ПОВЕРНИ ТІЛЬКИ ВАЛІДНИЙ JSON.
 
@@ -206,6 +384,7 @@ ${history.join('\n')}`;
       ? parsed.excluded
       : [];
 
+    // Об'єднання однакових областей
     const map = new Map();
 
     for (const r of parsed.regions) {
@@ -213,10 +392,21 @@ ${history.join('\n')}`;
 
       if (!name) continue;
 
-      const dead = Number(r.dead) || 0;
-      const deadChildren = Number(r.dead_children) || 0;
-      const injured = Number(r.injured) || 0;
-      const injuredChildren = Number(r.injured_children) || 0;
+      const dead = Number.isInteger(Number(r.dead))
+        ? Number(r.dead)
+        : 0;
+
+      const deadChildren = Number.isInteger(Number(r.dead_children))
+        ? Number(r.dead_children)
+        : 0;
+
+      const injured = Number.isInteger(Number(r.injured))
+        ? Number(r.injured)
+        : 0;
+
+      const injuredChildren = Number.isInteger(Number(r.injured_children))
+        ? Number(r.injured_children)
+        : 0;
 
       if (!map.has(name)) {
         map.set(name, {
@@ -301,6 +491,7 @@ ${history.join('\n')}`;
     const regionList = regions
       .map(r => {
         const name = cleanRegionName(r.name);
+
         return `${name} — ${r.dead}/${r.injured}`;
       })
       .join("\n");
@@ -346,3 +537,5 @@ ${excludedList}`;
     );
   }
 });
+
+console.log('Bot started!');

@@ -407,7 +407,7 @@ injured_children = 0
 ${history.join('\n')}`;
 
     const raw = await generateWithRetry(
-      "gemini-3.7-flash",
+      "gemini-3.6-flash",
       prompt
     );
 

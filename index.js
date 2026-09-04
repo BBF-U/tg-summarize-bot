@@ -89,7 +89,7 @@ async function handleCommand(
 
   try {
     const text = await generateWithRetry(
-      'gemini-3.7-flash',
+      'gemini-3.6-flash',
       promptText
     );
 

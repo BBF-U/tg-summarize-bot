@@ -9,7 +9,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const messageHistory = {};
 
-async function generateWithRetry(modelName, prompt, retries = 3) {
+async function generateWithRetry(modelName, prompt, retries = 2) {
   const model = genAI.getGenerativeModel({ model: modelName });
 
   for (let i = 0; i < retries; i++) {

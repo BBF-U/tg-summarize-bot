@@ -19,7 +19,7 @@ async function generateWithRetry(modelName, prompt, retries = 2) {
     } catch (e) {
       if (i === retries - 1) throw e;
 
-      const delay = (i + 1) * 3000;
+      const delay = 10000 * (i + 1);
 
       console.log(
         `Спроба ${i + 1} не вдалась, чекаю ${delay / 1000}с...`

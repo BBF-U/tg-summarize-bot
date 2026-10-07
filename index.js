@@ -89,7 +89,7 @@ async function handleCommand(
 
   try {
     const text = await generateWithRetry(
-      'gemini-3.8',
+      'gemini-3.8-flash',
       promptText
     );
 
@@ -407,7 +407,7 @@ injured_children = 0
 ${history.join('\n')}`;
 
     const raw = await generateWithRetry(
-      "gemini-3.8",
+      "gemini-3.8-flash",
       prompt
     );
 

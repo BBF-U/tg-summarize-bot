@@ -9,25 +9,71 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const messageHistory = {};
 
-async function generateWithRetry(modelName, prompt, retries = 2) {
-  const model = genAI.getGenerativeModel({ model: modelName });
 
-  for (let i = 0; i < retries; i++) {
-    try {
-      const result = await model.generateContent(prompt);
-      return result.response.text();
-    } catch (e) {
-      if (i === retries - 1) throw e;
+const MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite'
+];
 
-      const delay = 10000 * (i + 1);
+function isTemporaryServerError(error) {
+  const status = Number(
+    error?.status ||
+    error?.statusCode ||
+    error?.response?.status
+  );
 
-      console.log(
-        `Спроба ${i + 1} не вдалась, чекаю ${delay / 1000}с...`
-      );
+  return [500, 502, 503, 504].includes(status);
+}
 
-      await new Promise(res => setTimeout(res, delay));
+async function generateWithRetry(prompt, retries = 2) {
+  let lastError;
+
+  for (const modelName of MODELS) {
+    const model = genAI.getGenerativeModel({
+      model: modelName
+    });
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(
+          `GEMINI MODEL: ${modelName} | ATTEMPT: ${attempt}/${retries}`
+        );
+
+        const result = await model.generateContent(prompt);
+
+        return {
+          text: result.response.text(),
+          model: modelName
+        };
+      } catch (error) {
+        lastError = error;
+
+        console.error(
+          `${modelName} failed:`,
+          error?.status || error?.statusCode || error.message
+        );
+
+        if (!isTemporaryServerError(error)) {
+          throw error;
+        }
+
+        if (attempt < retries) {
+          const delay = 5000 * attempt;
+
+          await new Promise(resolve =>
+            setTimeout(resolve, delay)
+          );
+        }
+      }
     }
+
+    console.log(
+      `${modelName} недоступна, переходжу до наступної моделі.`
+    );
   }
+
+  throw lastError || new Error('Усі моделі недоступні.');
 }
 
 function retryKeyboard(command) {
@@ -88,16 +134,13 @@ async function handleCommand(
   bot.sendMessage(chatId, waitMsg);
 
   try {
-    const text = await generateWithRetry(
-      'gemini-3.6-flash',
-      promptText
-    );
+    const { text, model } = await generateWithRetry(promptText);
 
     messageHistory[chatId] = [];
 
     bot.sendMessage(
       chatId,
-      `${successPrefix}\n\n${text}`
+      `${successPrefix}\n\n${text}\n\n🤖 Модель: ${model}`
     );
   } catch (e) {
     console.error(e);
@@ -406,10 +449,7 @@ injured_children = 0
 
 ${history.join('\n')}`;
 
-    const raw = await generateWithRetry(
-      "gemini-3.6-flash",
-      prompt
-    );
+    const { text: raw, model } = await generateWithRetry(prompt);
 
     const clean = raw
       .replace(/```json/g, "")
@@ -563,7 +603,9 @@ ${history.join('\n')}`;
 ${regionList}
 
 Не враховано:
-${excludedList}`;
+${excludedList}
+
+🤖 Модель: ${model}`;
 
     messageHistory[chatId] = [];
 

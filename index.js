@@ -5,19 +5,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
-
-bot.on('polling_error', (error) => {
-  console.error('[TELEGRAM POLLING ERROR]', {
-    code: error?.code,
-    message: error?.message,
-    response: error?.response?.body
-  });
-});
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const messageHistory = {};
-let nextHistoryId = 1;
 
 
 const MODELS = [
@@ -26,37 +16,22 @@ const MODELS = [
   'gemini-3.5-flash-lite'
 ];
 
-function getHttpStatus(error) {
-  const directStatus = Number(
+
+function isTemporaryServerError(error) {
+  const status = Number(
     error?.status ||
     error?.statusCode ||
     error?.response?.status
   );
-  if (directStatus) return directStatus;
 
-  const message = String(error?.message || '');
-  const match = message.match(/\[(\d{3})(?:\s|\])/);
-  return match ? Number(match[1]) : 0;
-}
-
-function isModelNotFoundError(error) {
-  const status = getHttpStatus(error);
-  const message = String(error?.message || '').toLowerCase();
-
-  return status === 404 ||
-    message.includes('model not found') ||
-    message.includes('not supported for generatecontent') ||
-    message.includes('does not exist');
-}
-
-function isTemporaryServerError(error) {
-  const status = getHttpStatus(error);
-  if ([408, 429, 500, 502, 503, 504].includes(status)) return true;
+  if ([408, 429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
 
   const message = String(error?.message || '').toLowerCase();
+
   return (
     error?.name === 'TypeError' ||
-    error?.name === 'AbortError' ||
     message.includes('fetch failed') ||
     message.includes('timeout') ||
     message.includes('timed out') ||
@@ -69,26 +44,23 @@ function isTemporaryServerError(error) {
   );
 }
 
-const REQUEST_TIMEOUT_MS = 45000;
-const MODEL_RETRIES = 2;
-
-async function generateWithRetry(prompt, retries = MODEL_RETRIES) {
+async function generateWithRetry(prompt, retries = 2) {
   let lastError;
 
   for (const modelName of MODELS) {
-    // RequestOptions.timeout is supported by the installed legacy SDK.
-    const model = genAI.getGenerativeModel(
-      { model: modelName },
-      { timeout: REQUEST_TIMEOUT_MS }
-    );
+    const model = genAI.getGenerativeModel({
+      model: modelName
+    });
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         console.log(
-          `GEMINI MODEL: ${modelName} | ATTEMPT: ${attempt}/${retries} | TIMEOUT: ${REQUEST_TIMEOUT_MS}ms`
+          `GEMINI MODEL: ${modelName} | ATTEMPT: ${attempt}/${retries}`
         );
 
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(prompt, {
+          timeout: 90000
+        });
 
         return {
           text: result.response.text(),
@@ -96,86 +68,39 @@ async function generateWithRetry(prompt, retries = MODEL_RETRIES) {
         };
       } catch (error) {
         lastError = error;
-        const status = getHttpStatus(error);
-
+        
         console.error('GEMINI ERROR DETAILS:', {
-          model: modelName,
-          attempt,
-          status: status || undefined,
-          name: error?.name,
-          message: error?.message,
-          cause: error?.cause?.message,
-          code: error?.cause?.code
+          name: error.name,
+          message: error.message,
+          cause: error.cause?.message,
+          code: error.cause?.code
         });
 
-        // A missing/invalid model should skip retries for this model,
-        // but must not prevent trying the next fallback model.
-        if (isModelNotFoundError(error)) {
-          console.error(`${modelName} not found/unsupported; switching to next model.`);
-          break;
-        }
+        console.error(
+          `${modelName} failed:`,
+          error?.status || error?.statusCode || error.message
+        );
 
         if (!isTemporaryServerError(error)) {
-          // Authentication, permission, malformed prompt, and other non-transient
-          // errors are unlikely to be fixed by switching models.
           throw error;
         }
 
-        console.error(`${modelName} failed:`, status || error?.message);
-
         if (attempt < retries) {
           const delay = 5000 * attempt;
-          console.log(`Retrying ${modelName} in ${delay / 1000}s...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+
+          await new Promise(resolve =>
+            setTimeout(resolve, delay)
+          );
         }
       }
     }
 
-    console.log(`${modelName} недоступна, переходжу до наступної моделі.`);
+    console.log(
+      `${modelName} недоступна, переходжу до наступної моделі.`
+    );
   }
 
   throw lastError || new Error('Усі моделі недоступні.');
-}
-
-const MAX_HISTORY_MESSAGES = 80;
-const MAX_MESSAGE_CHARS = 2500;
-const MAX_HISTORY_CHARS = 50000;
-const activeCommands = new Set();
-
-function collectMessage(msg) {
-  const chatId = msg?.chat?.id;
-  const text = msg?.text || msg?.caption;
-
-  if (chatId == null || !text || text.startsWith('/')) return;
-
-  if (!messageHistory[chatId]) messageHistory[chatId] = [];
-
-  const author = msg.sender_chat?.title ||
-    msg.from?.first_name ||
-    msg.from?.username ||
-    'Невідомий автор';
-
-  messageHistory[chatId].push({
-    id: nextHistoryId++,
-    text: `${author}: ${String(text).slice(0, MAX_MESSAGE_CHARS)}`
-  });
-
-  // Bound both message count and total text size per chat.
-  while (
-    messageHistory[chatId].length > MAX_HISTORY_MESSAGES ||
-    messageHistory[chatId].reduce((sum, item) => sum + item.text.length, 0) > MAX_HISTORY_CHARS
-  ) {
-    messageHistory[chatId].shift();
-  }
-}
-
-function consumeHistory(chatId, snapshot) {
-  const current = messageHistory[chatId] || [];
-  if (!snapshot.length) return;
-
-  const lastProcessedId = snapshot[snapshot.length - 1].id;
-  // Keep all messages that arrived after this request's immutable snapshot.
-  messageHistory[chatId] = current.filter(item => item.id > lastProcessedId);
 }
 
 function retryKeyboard(command) {
@@ -188,29 +113,33 @@ function retryKeyboard(command) {
   };
 }
 
-bot.on('message', collectMessage);
-bot.on('channel_post', collectMessage);
+bot.on('message', (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || msg.caption;
+
+  if (!text || text.startsWith('/')) return;
+
+  if (!messageHistory[chatId]) {
+    messageHistory[chatId] = [];
+  }
+
+  messageHistory[chatId].push(
+    `${msg.from.first_name}: ${text}`
+  );
+});
 
 bot.on('callback_query', async (query) => {
-  try {
-    await bot.answerCallbackQuery(query.id);
+  const chatId = query.message.chat.id;
+  const command = query.data;
 
-    const command = String(query.data || '').replace(/^\//, '');
-    if (!['digest', 'tldr', 'topics', 'casualties'].includes(command)) return;
-    if (!query.message) return;
+  await bot.answerCallbackQuery(query.id);
 
-    // Re-process the button as a synthetic command message so onText handlers run.
-    bot.processUpdate({
-      update_id: Date.now(),
-      message: {
-        ...query.message,
-        text: `/${command}`,
-        from: query.from
-      }
-    });
-  } catch (error) {
-    console.error('[TELEGRAM CALLBACK ERROR]', error);
-  }
+  bot.emit('text', {
+    ...query.message,
+    text: `/${command}`,
+    chat: { id: chatId },
+    from: query.from
+  });
 });
 
 async function handleCommand(
@@ -218,117 +147,106 @@ async function handleCommand(
   command,
   waitMsg,
   successPrefix,
-  promptText,
-  historySnapshot
+  promptText
 ) {
-  if (!historySnapshot || historySnapshot.length === 0) {
+  const history = messageHistory[chatId];
+
+  if (!history || history.length === 0) {
     return bot.sendMessage(
       chatId,
       '📭 Немає повідомлень. Перешли щось і спробуй знову.'
     );
   }
 
-  if (activeCommands.has(chatId)) {
-    return bot.sendMessage(chatId, '⏳ Уже обробляю попередню команду в цьому чаті. Дочекайся результату.');
-  }
+  bot.sendMessage(chatId, waitMsg);
 
-  activeCommands.add(chatId);
   try {
-    await bot.sendMessage(chatId, waitMsg);
     const { text, model } = await generateWithRetry(promptText);
 
-    consumeHistory(chatId, historySnapshot);
-    await bot.sendMessage(
+    messageHistory[chatId] = [];
+
+    bot.sendMessage(
       chatId,
       `${successPrefix}\n\n${text}\n\n🤖 Модель: ${model}`
     );
   } catch (e) {
-    console.error('[COMMAND ERROR]', command, e);
-    await bot.sendMessage(
+    console.error(e);
+
+    bot.sendMessage(
       chatId,
       '❌ Помилка. Спробуй ще раз:',
       retryKeyboard(command)
     );
-  } finally {
-    activeCommands.delete(chatId);
   }
 }
 
-bot.onText(/^\/digest(?:@\w+)?$/i, (msg) => {
+bot.onText(/\/digest/, (msg) => {
   const chatId = msg.chat.id;
-  const history = [...(messageHistory[chatId] || [])];
+  const history = messageHistory[chatId];
 
   const prompt = `Зроби короткий дайджест цих повідомлень. Відповідай українською мовою. Використовуй простий текст БЕЗ markdown, без зірочок, без решіток. Використовуй емодзі для структури. Формат:
 🔹 Головні теми — перелічи теми
 🔸 Висновки — 2-3 речення
 
-${history.map(item => item.text).join('\n')}`;
+${(history || []).join('\n')}`;
 
   handleCommand(
     chatId,
     'digest',
     '⏳ Аналізую...',
     '📋 Дайджест:',
-    prompt,
-    history
+    prompt
   );
 });
 
-bot.onText(/^\/tldr(?:@\w+)?$/i, (msg) => {
+bot.onText(/\/tldr/, (msg) => {
   const chatId = msg.chat.id;
-  const history = [...(messageHistory[chatId] || [])];
+  const history = messageHistory[chatId];
 
   const prompt = `Підсумуй ці повідомлення у 3 коротких речення. Тільки найголовніше. Без зайвих слів. Відповідай українською.
 
-${history.map(item => item.text).join('\n')}`;
+${(history || []).join('\n')}`;
 
   handleCommand(
     chatId,
     'tldr',
     '⏳ Стискаю до мінімуму...',
     '⚡ TL;DR:',
-    prompt,
-    history
+    prompt
   );
 });
 
-bot.onText(/^\/topics(?:@\w+)?$/i, (msg) => {
+bot.onText(/\/topics/, (msg) => {
   const chatId = msg.chat.id;
-  const history = [...(messageHistory[chatId] || [])];
+  const history = messageHistory[chatId];
 
   const prompt = `Виділи список головних тем з цих повідомлень. Кожна тема — один рядок з емодзі. Без пояснень і висновків. Відповідай українською.
 
-${history.map(item => item.text).join('\n')}`;
+${(history || []).join('\n')}`;
 
   handleCommand(
     chatId,
     'topics',
     '⏳ Виділяю теми...',
     '🗂 Теми:',
-    prompt,
-    history
+    prompt
   );
 });
 
-bot.onText(/^\/casualties(?:@\w+)?$/i, async (msg) => {
+bot.onText(/\/casualties/, async (msg) => {
   const chatId = msg.chat.id;
-  const history = [...(messageHistory[chatId] || [])];
+  const history = messageHistory[chatId];
 
-  if (history.length === 0) {
+  if (!history || history.length === 0) {
     return bot.sendMessage(
       chatId,
       '📭 Немає повідомлень. Перешли щось і спробуй знову.'
     );
   }
 
-  if (activeCommands.has(chatId)) {
-    return bot.sendMessage(chatId, '⏳ Уже обробляю попередню команду в цьому чаті. Дочекайся результату.');
-  }
-
-  activeCommands.add(chatId);
+  bot.sendMessage(chatId, '⏳ Рахую втрати...');
 
   try {
-    await bot.sendMessage(chatId, '⏳ Рахую втрати...');
     const prompt = `Роль: Ти — аналітик текстових зведень про обстріли.
 
 Твоє завдання — визначити точну кількість загиблих та поранених цивільних по кожній області України.
@@ -556,7 +474,7 @@ injured_children = 0
 
 Не додавай жодного тексту поза JSON.
 
-${history.map(item => item.text).join('\n')}`;
+${history.join('\n')}`;
 
     const { text: raw, model } = await generateWithRetry(prompt);
 
@@ -705,20 +623,8 @@ ${history.map(item => item.text).join('\n')}`;
           .join("\n")
       : "Немає";
 
-const kyivCapital = regions.some(r =>
-  cleanRegionName(r.name).toLowerCase() === "київ"
-);
-
-const oblastCount = regions.filter(r =>
-  cleanRegionName(r.name).toLowerCase() !== "київ"
-).length;
-
-const locationSummary = kyivCapital
-  ? `у ${oblastCount} ${plural(oblastCount, "області", "областях", "областях")} та столиці Києві`
-  : `у ${oblastCount} ${plural(oblastCount, "області", "областях", "областях")}`;
-
-const msg =
-`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак ${locationSummary} (${regionNames}).
+    const msg =
+`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regions.length} ${plural(regions.length, "області", "областях", "областях")} (${regionNames}).
 
 По областях (загиблі/поранені):
 ${regionList}
@@ -728,20 +634,18 @@ ${excludedList}
 
 🤖 Модель: ${model}`;
 
-    consumeHistory(chatId, history);
+    messageHistory[chatId] = [];
 
-    await bot.sendMessage(chatId, msg);
+    bot.sendMessage(chatId, msg);
 
   } catch (err) {
     console.error(err);
 
-    await bot.sendMessage(
+    bot.sendMessage(
       chatId,
       "❌ Помилка під час аналізу. Спробуйте ще раз.",
       retryKeyboard("casualties")
     );
-  } finally {
-    activeCommands.delete(chatId);
   }
 });
 

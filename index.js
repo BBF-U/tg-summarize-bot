@@ -59,7 +59,7 @@ async function generateWithRetry(prompt, retries = 2) {
         );
 
         const result = await model.generateContent(prompt, {
-          timeout: 30000
+          timeout: 90000
         });
 
         return {

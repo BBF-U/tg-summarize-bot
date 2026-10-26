@@ -39,6 +39,8 @@ function isTemporaryServerError(error) {
     message.includes('econnreset') ||
     message.includes('econnrefused') ||
     message.includes('socket')
+    message.includes('aborted') ||
+    message.includes('abort')
   );
 }
 
@@ -56,7 +58,9 @@ async function generateWithRetry(prompt, retries = 2) {
           `GEMINI MODEL: ${modelName} | ATTEMPT: ${attempt}/${retries}`
         );
 
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(prompt, {
+          timeout: 30000
+        });
 
         return {
           text: result.response.text(),

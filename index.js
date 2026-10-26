@@ -16,6 +16,7 @@ const MODELS = [
   'gemini-3.5-flash-lite'
 ];
 
+
 function isTemporaryServerError(error) {
   const status = Number(
     error?.status ||
@@ -23,7 +24,22 @@ function isTemporaryServerError(error) {
     error?.response?.status
   );
 
-  return [500, 502, 503, 504].includes(status);
+  if ([408, 429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+
+  const message = String(error?.message || '').toLowerCase();
+
+  return (
+    error?.name === 'TypeError' ||
+    message.includes('fetch failed') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('network error') ||
+    message.includes('econnreset') ||
+    message.includes('econnrefused') ||
+    message.includes('socket')
+  );
 }
 
 async function generateWithRetry(prompt, retries = 2) {

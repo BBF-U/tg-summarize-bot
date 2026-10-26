@@ -7,6 +7,12 @@ http.createServer((req, res) => res.end('OK')).listen(process.env.PORT || 3000);
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+bot.on('polling_error', (err) => {
+  console.error('Polling error:', err.code, err.message);
+});
+
+const MODEL_NAME = 'gemini-3.6-flash';
+
 const messageHistory = {};
 
 async function generateWithRetry(modelName, prompt, retries = 2) {
@@ -89,7 +95,7 @@ async function handleCommand(
 
   try {
     const text = await generateWithRetry(
-      'gemini-3.6-flash',
+      MODEL_NAME,
       promptText
     );
 
@@ -407,7 +413,7 @@ injured_children = 0
 ${history.join('\n')}`;
 
     const raw = await generateWithRetry(
-      "gemini-3.6-flash",
+      MODEL_NAME,
       prompt
     );
 
@@ -526,9 +532,33 @@ ${history.join('\n')}`;
         .trim();
     }
 
-    const regionNames = regions
+    function isKyiv(name) {
+      const n = cleanRegionName(name)
+        .replace(/^м\.?\s*/i, "")
+        .trim()
+        .toLowerCase();
+
+      return n === "київ";
+    }
+
+    const kyivRegion = regions.find(r => isKyiv(r.name));
+    const oblasts = regions.filter(r => !isKyiv(r.name));
+
+    const oblastNames = oblasts
       .map(r => cleanRegionName(r.name))
       .join(", ");
+
+    let locationPhrase;
+
+    if (oblasts.length > 0 && kyivRegion) {
+      locationPhrase = `${oblasts.length} ${plural(oblasts.length, "області", "областях", "областях")} (${oblastNames}) та у Києві`;
+    } else if (oblasts.length > 0) {
+      locationPhrase = `${oblasts.length} ${plural(oblasts.length, "області", "областях", "областях")} (${oblastNames})`;
+    } else if (kyivRegion) {
+      locationPhrase = `Києві`;
+    } else {
+      locationPhrase = `0 областях`;
+    }
 
     const regionList = regions
       .map(r => {
@@ -557,7 +587,7 @@ ${history.join('\n')}`;
       : "Немає";
 
     const msg =
-`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regions.length} ${plural(regions.length, "області", "областях", "областях")} (${regionNames}).
+`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${locationPhrase}.
 
 По областях (загиблі/поранені):
 ${regionList}

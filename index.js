@@ -623,8 +623,20 @@ ${history.join('\n')}`;
           .join("\n")
       : "Немає";
 
-    const msg =
-`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${regions.length} ${plural(regions.length, "області", "областях", "областях")} (${regionNames}).
+    const kyivCapital = regions.some(r =>
+  cleanRegionName(r.name).toLowerCase() === "київ"
+);
+
+const oblastCount = regions.filter(r =>
+  cleanRegionName(r.name).toLowerCase() !== "київ"
+).length;
+
+const locationSummary = kyivCapital
+  ? `у ${oblastCount} ${plural(oblastCount, "області", "областях", "областях")} та столиці Києві`
+  : `у ${oblastCount} ${plural(oblastCount, "області", "областях", "областях")}`;
+
+const msg =
+`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак ${locationSummary} (${regionNames}).
 
 По областях (загиблі/поранені):
 ${regionList}

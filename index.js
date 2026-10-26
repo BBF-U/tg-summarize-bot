@@ -38,7 +38,7 @@ function isTemporaryServerError(error) {
     message.includes('network error') ||
     message.includes('econnreset') ||
     message.includes('econnrefused') ||
-    message.includes('socket')
+    message.includes('socket') ||
     message.includes('aborted') ||
     message.includes('abort')
   );

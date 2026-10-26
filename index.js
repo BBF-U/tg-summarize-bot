@@ -48,13 +48,6 @@ async function generateWithRetry(prompt, retries = 2) {
         };
       } catch (error) {
         lastError = error;
-        
-        console.error('GEMINI ERROR DETAILS:', {
-          name: error.name,
-          message: error.message,
-          cause: error.cause?.message,
-          code: error.cause?.code
-        });
 
         console.error(
           `${modelName} failed:`,

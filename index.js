@@ -11,7 +11,7 @@ bot.on('polling_error', (err) => {
   console.error('Polling error:', err.code, err.message);
 });
 
-const MODEL_NAME = 'gemini-3.5-flash-lite';
+const MODEL_NAME = 'gemini-3.6-flash';
 
 const messageHistory = {};
 

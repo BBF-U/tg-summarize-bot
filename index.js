@@ -544,21 +544,34 @@ ${history.join('\n')}`;
     const kyivRegion = regions.find(r => isKyiv(r.name));
     const oblasts = regions.filter(r => !isKyiv(r.name));
 
+    // "Назва загиблі/поранені", напр. "Донецька 4/5"
+    const withStats = r =>
+      `${cleanRegionName(r.name)} ${r.dead}/${r.injured}`;
+
     const oblastNames = oblasts
-      .map(r => cleanRegionName(r.name))
+      .map(withStats)
       .join(", ");
 
     let locationPhrase;
 
     if (oblasts.length > 0 && kyivRegion) {
-      locationPhrase = `${oblasts.length} ${plural(oblasts.length, "області", "областях", "областях")} (${oblastNames}) та у Києві`;
+      locationPhrase = `${oblasts.length} ${plural(oblasts.length, "області", "областях", "областях")} (${oblastNames}) та у Києві (${kyivRegion.dead}/${kyivRegion.injured})`;
     } else if (oblasts.length > 0) {
       locationPhrase = `${oblasts.length} ${plural(oblasts.length, "області", "областях", "областях")} (${oblastNames})`;
     } else if (kyivRegion) {
-      locationPhrase = `Києві`;
+      locationPhrase = `Києві (${kyivRegion.dead}/${kyivRegion.injured})`;
     } else {
       locationPhrase = `0 областях`;
     }
+
+    // Частина про дітей з'являється лише якщо їх кількість > 0
+    const deadPart = totalDead > 0
+      ? `Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}${totalDeadChildren > 0 ? `, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}` : ""}.`
+      : "Загиблих немає.";
+
+    const injuredPart = totalInjured > 0
+      ? `Поранення отримали ${totalInjured} ${osoby(totalInjured)}${totalInjuredChildren > 0 ? `, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}` : ""}`
+      : "Поранених немає";
 
     const regionList = regions
       .map(r => {
@@ -587,7 +600,7 @@ ${history.join('\n')}`;
       : "Немає";
 
     const msg =
-`⚔️ Втрати серед цивільних: Загалом ${zahynulo(totalDead)} ${totalDead} ${osoby(totalDead)}, з них ${totalDeadChildren} ${dytyny(totalDeadChildren)}. Поранення отримали ${totalInjured} ${osoby(totalInjured)}, з них ${totalInjuredChildren} ${dytyny(totalInjuredChildren)}, внаслідок ворожих атак у ${locationPhrase}.
+`⚔️ Втрати серед цивільних: ${deadPart} ${injuredPart}, внаслідок ворожих атак у ${locationPhrase}.
 
 По областях (загиблі/поранені):
 ${regionList}
